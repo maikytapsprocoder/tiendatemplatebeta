@@ -1,0 +1,70 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Administradores: usuarios de Firebase Auth con estos emails.
+    // En el panel se ingresa solo "user"; internamente es user@tienda-admin.local.
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email in ['user@tienda-admin.local'];
+    }
+
+    // Un pedido nuevo solo puede crearse con esta forma y tamaños (evita basura y abuso).
+    function validOrder() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['customer', 'items', 'itemCount', 'shipping', 'total', 'code', 'status', 'createdAt'])
+        && d.keys().hasAll(['customer', 'items', 'total', 'code', 'status', 'createdAt'])
+        && d.status == 'nuevo'
+        && d.createdAt == request.time
+        && d.customer is map
+        && d.customer.keys().hasOnly(['name', 'phone', 'delivery', 'address', 'zone', 'payment', 'note'])
+        && d.customer.name is string && d.customer.name.size() > 0 && d.customer.name.size() <= 80
+        && d.customer.phone is string && d.customer.phone.size() >= 7 && d.customer.phone.size() <= 30
+        && d.customer.delivery in ['retiro', 'envio']
+        && (!('address' in d.customer) || (d.customer.address is string && d.customer.address.size() <= 200))
+        && (!('zone' in d.customer) || (d.customer.zone is string && d.customer.zone.size() <= 80))
+        && (!('shipping' in d) || (d.shipping is number && d.shipping >= 0 && d.shipping <= 100000))
+        && (!('itemCount' in d) || (d.itemCount is number && d.itemCount <= 200))
+        && (!('payment' in d.customer) || (d.customer.payment is string && d.customer.payment.size() <= 60))
+        && (!('note' in d.customer) || (d.customer.note is string && d.customer.note.size() <= 500))
+        && d.items is list && d.items.size() > 0 && d.items.size() <= 50
+        && d.total is number && d.total >= 0
+        && d.code is string && d.code.size() <= 20;
+    }
+
+    // Catálogo, banners y ajustes: lectura pública, escritura solo admins.
+    match /products/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /banners/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Estado público de un pedido (sin datos personales): el cliente lo consulta con su código.
+    match /orderStatus/{code} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status == 'nuevo'
+        && code.size() <= 20;
+      allow update, delete: if isAdmin();
+    }
+
+    // Pedidos: cualquiera puede crear uno (con validación); solo admins los ven y cambian.
+    match /orders/{id} {
+      allow create: if validOrder();
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}
