@@ -530,7 +530,9 @@ const BUILTIN_CATS = [
   { id: 'computacion',       name: 'PCs y componentes', tint: '#ECE8FF', acc: '#6B4DF0', art: 'laptop',  blurb: 'Laptops, PCs armadas y componentes', image: '', order: 4 }
 ];
 /* Categorías iniciales: las de negocio.config.js si existen, si no las de la tienda de ejemplo */
-const DEFAULT_CATS = (window.NEGOCIO && Array.isArray(window.NEGOCIO.categories) && window.NEGOCIO.categories.length)
+/* sampleData:false en negocio.config.js = la tienda arranca vacía (sin productos, banners ni categorías de ejemplo) */
+const SAMPLE_ON = !(window.NEGOCIO && window.NEGOCIO.sampleData === false);
+const DEFAULT_CATS = (window.NEGOCIO && Array.isArray(window.NEGOCIO.categories))
   ? window.NEGOCIO.categories.map((c, i) => ({ tint: '#EEF0F4', acc: '#2347F5', art: 'box', blurb: '', image: '', order: i + 1, ...c }))
   : BUILTIN_CATS;
 
@@ -542,6 +544,9 @@ function applyCats(list) {
   for (const c of l) CATS[c.id] = { tint: '#EEF0F4', acc: '#2347F5', art: 'box', blurb: '', image: '', ...c };
 }
 applyCats();
+/* Categoría de un producto; si no existe (borrada o con otro id) se usa la primera, nunca undefined */
+const CAT_NONE = { id: '', name: 'Otros', tint: '#EEF0F4', acc: '#2347F5', art: 'box', blurb: '', image: '' };
+const catById = id => CATS[id] || Object.values(CATS)[0] || CAT_NONE;
 
 const ART_LABELS = {
   mouse: 'Mouse', keyboard: 'Teclado', headset: 'Auriculares', monitor: 'Monitor', speaker: 'Parlante',
@@ -609,7 +614,7 @@ function artUri(key, accent) {
 function imgOf(p) {
   const first = (Array.isArray(p.images) && p.images[0]) || p.image;
   if (first) return first;
-  const c = CATS[p.category] || CATS.perifericos;
+  const c = catById(p.category);
   return artUri(p.art || c.art, c.acc);
 }
 
@@ -785,8 +790,8 @@ function createDemoDB() {
   const emit = c => (subs[c] || []).forEach(cb => cb(read(c)));
 
   if (!lsGet('nodo_demo_init')) {
-    lsSet(key('products'), seedProducts());
-    lsSet(key('banners'), SEED_BANNERS);
+    lsSet(key('products'), SAMPLE_ON ? seedProducts() : []);
+    lsSet(key('banners'), SAMPLE_ON ? SEED_BANNERS : []);
     lsSet(key('settings'), [{ id: 'store', ...DEFAULT_SETTINGS }]);
     lsSet(key('orders'), []);
     lsSet('nodo_demo_init', 1);
@@ -921,7 +926,7 @@ const fmtDate = ms => ms ? new Date(ms).toLocaleString('es-UY', { dateStyle: 'sh
 const onOffer = p => Number(p.oldPrice) > Number(p.price) && Number(p.price) > 0;
 const pct = p => Math.round((1 - p.price / p.oldPrice) * 100);
 const stockOf = p => (p.stock === null || p.stock === undefined || p.stock === '') ? Infinity : Number(p.stock);
-const catOf = p => CATS[p.category] || Object.values(CATS)[0] || { name: 'Otros', tint: '#EEF0F4', acc: '#2347F5', art: 'box' };
+const catOf = p => catById(p.category);
 const lum = hex => { const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || ''); if (!m) return 0; const [r, g, b] = [1, 2, 3].map(i => parseInt(m[i], 16) / 255); return .2126 * r + .7152 * g + .0722 * b; };
 const digits = s => String(s || '').replace(/\D/g, '');
 const uyPhone = s => { const d = digits(s); if (d.startsWith('598')) return d; if (d.startsWith('0')) return '598' + d.slice(1); return d; };
@@ -1013,8 +1018,8 @@ const app = $('#app');
 
 /* Catálogo de ejemplo: se muestra solo si Firebase falla o todavía no tiene productos.
    Para desactivarlo: window.SAMPLE_FALLBACK = false en firebase-config.js */
-const SAMPLE = seedProducts();
-const useSample = () => window.SAMPLE_FALLBACK !== false && DB?.mode === 'firebase' && state.loaded.products && (state.fsError || state.products.length === 0);
+const SAMPLE = SAMPLE_ON ? seedProducts() : [];
+const useSample = () => SAMPLE_ON && window.SAMPLE_FALLBACK !== false && DB?.mode === 'firebase' && state.loaded.products && (state.fsError || state.products.length === 0);
 const activeProducts = () => (useSample() ? SAMPLE : state.products).filter(p => p.active !== false);
 const shownBanners = () => (useSample() && !state.banners.length ? SEED_BANNERS : state.banners);
 const saveCart = () => lsSet('nodo_cart', state.cart);
@@ -1754,7 +1759,7 @@ function galItems(l, art, accent) {
 function galGet(form) { try { return JSON.parse(form.images.value || '[]'); } catch { return []; } }
 function galSet(form, l) {
   form.images.value = JSON.stringify(l);
-  const cat = CATS[form.category?.value] || Object.values(CATS)[0];
+  const cat = catById(form.category?.value);
   $('#galList').innerHTML = galItems(l, form.art.value || cat.art, cat.acc);
   const size = l.join('').length;
   $('#galNote').textContent = size > 850000 ? 'Las fotos pesan demasiado en total: quitá alguna o usá enlaces.' : '';
@@ -1786,7 +1791,8 @@ async function fileToDataUrl(file, maxSide, maxLen = 600000) {
 }
 
 function openProductForm(id) {
-  const p = id ? state.products.find(x => x.id === id) : { category: 'perifericos', active: true };
+  if (!Object.keys(CATS).length) { state.admin.tab = 'categories'; renderAdminBody(); return toast('Primero creá al menos una categoría (por ejemplo “Televisores”).', { bad: true }); }
+  const p = id ? state.products.find(x => x.id === id) : { category: state.admin.cat || Object.keys(CATS)[0], active: true };
   const subs = [...new Set(state.products.map(x => x.sub).filter(Boolean))];
   openForm(id ? 'Editar producto' : 'Nuevo producto', `<form data-form="product" data-id="${esc(id || '')}" novalidate>
     <div class="form-grid">
@@ -1800,7 +1806,7 @@ function openProductForm(id) {
       <div class="field full"><label for="f-d">Descripción</label><textarea class="in" id="f-d" name="description" rows="3">${esc(p.description)}</textarea></div>
       <div class="field full"><label for="f-sp">Características</label><textarea class="in" id="f-sp" name="specs" rows="4">${esc(p.specs)}</textarea><small>Una por línea. Ej.: Memoria: 16 GB</small></div>
     </div>
-    ${galleryField(p.images && p.images.length ? p.images : (p.image ? [p.image] : []), p.art, (CATS[p.category] || Object.values(CATS)[0]).acc)}${artSelect(p.art)}
+    ${galleryField(p.images && p.images.length ? p.images : (p.image ? [p.image] : []), p.art, catById(p.category).acc)}${artSelect(p.art)}
     <label class="chk"><input type="checkbox" name="active" ${p.active !== false ? 'checked' : ''}> Visible en la tienda</label>
     <p class="err" data-err hidden role="alert"></p>
     <div class="dlg-f"><button type="button" class="btn btn-line" data-act="closeDlg">Cancelar</button><button type="submit" class="btn btn-primary">Guardar producto</button></div></form>`);
@@ -1930,8 +1936,8 @@ function settingsTab() {
     <div class="field"><label for="pw2">Repetir contraseña</label><input class="in" id="pw2" name="p2" type="password" autocomplete="new-password"></div>
     <p class="err" data-err hidden role="alert"></p>
     <button class="btn btn-ink" type="submit">Cambiar contraseña</button></form>
-  <div class="panel"><h3>Datos de ejemplo</h3><p class="note" style="margin-bottom:12px">Carga ${SEED_PRODUCTS.length} productos y ${SEED_BANNERS.length} banners de muestra con marcas ficticias. No borra lo que ya cargaste.</p>
-    <button type="button" class="btn btn-line" data-act="admSeed">Cargar productos de ejemplo</button></div>
+  ${SAMPLE_ON ? `<div class="panel"><h3>Datos de ejemplo</h3><p class="note" style="margin-bottom:12px">Carga ${SEED_PRODUCTS.length} productos y ${SEED_BANNERS.length} banners de muestra con marcas ficticias. No borra lo que ya cargaste.</p>
+    <button type="button" class="btn btn-line" data-act="admSeed">Cargar productos de ejemplo</button></div>` : ''}
   <p class="note">Conexión: ${DB.mode === 'firebase' ? 'Firebase (datos en tiempo real)' : 'modo demo (datos guardados solo en este navegador)'}.</p>`;
 }
 
@@ -1954,8 +1960,15 @@ function adminClick(a, t) {
   else if (a === 'admCEdit') openCategoryForm(id);
   else if (a === 'admCDel') {
     const n = state.products.filter(p => p.category === id).length;
-    if (n) return toast(`“${CATS[id]?.name}” tiene ${n} producto(s). Movelos a otra categoría antes de eliminarla.`, { bad: true });
-    if (Object.keys(CATS).length <= 1) return toast('Tiene que quedar al menos una categoría.', { bad: true });
+    if (Object.keys(CATS).length <= 1) return toast('Tiene que quedar al menos una categoría. Creá la nueva antes de borrar esta.', { bad: true });
+    if (n) {
+      const otras = Object.entries(CATS).filter(([k]) => k !== id);
+      return openForm('Eliminar categoría', `<form data-form="catmove" data-id="${esc(id)}" novalidate>
+        <p>“${esc(CATS[id]?.name)}” tiene <b>${n} producto${n === 1 ? '' : 's'}</b>. Elegí a qué categoría pasarlos antes de eliminarla.</p>
+        <div class="field"><label for="m-c">Mover a</label><select class="in" id="m-c" name="target">${otras.map(([k, c]) => `<option value="${esc(k)}">${esc(c.name)}</option>`).join('')}</select></div>
+        <p class="err" data-err hidden role="alert"></p>
+        <div class="dlg-f"><button type="button" class="btn btn-line" data-act="closeDlg">Cancelar</button><button type="submit" class="btn btn-danger">Mover y eliminar</button></div></form>`);
+    }
     askConfirm(`¿Eliminar la categoría “${CATS[id]?.name}”?`).then(ok => ok && guarded(async () => { await DB.remove('categories', id); toast('Categoría eliminada'); }));
   }
   else if (a === 'admBNew') openBannerForm();
@@ -2031,6 +2044,14 @@ async function adminSubmit(form) {
     const data = { name: s('name'), category: s('category'), sub: s('sub'), brand: s('brand'), price, oldPrice: old, stock, description: s('description'), specs: String(f.get('specs') || '').trim(), images, image: images[0] || '', art: s('art'), active: f.get('active') === 'on', updatedAt: Date.now() };
     if (!id) data.createdAt = Date.now();
     return guarded(async () => { await DB.save('products', id, data); $('#dlgForm').close(); toast('Producto guardado'); }, form);
+  }
+  if (kind === 'catmove') {
+    const target = s('target'); if (!CATS[target]) return formErr(form, 'Elegí una categoría de destino.');
+    return guarded(async () => {
+      for (const p of state.products.filter(x => x.category === id)) await DB.save('products', p.id, { category: target, updatedAt: Date.now() });
+      await DB.remove('categories', id);
+      $('#dlgForm').close(); toast('Productos movidos y categoría eliminada');
+    }, form);
   }
   if (kind === 'category') {
     if (!s('name')) return formErr(form, 'Escribí el nombre de la categoría.');
