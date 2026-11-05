@@ -1629,8 +1629,8 @@ document.addEventListener('focusout', () => { if (pendingRender) setTimeout(() =
 
 
 /* ───────── Panel de administración ───────── */
-const STATUS = { nuevo: 'Nuevo', atendido: 'Atendido', entregado: 'Entregado', cancelado: 'Cancelado' };
-const num = v => { const s = String(v ?? '').trim(); if (s === '') return NaN; const n = Number(s.replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+var STATUS = { nuevo: 'Nuevo', atendido: 'Atendido', entregado: 'Entregado', cancelado: 'Cancelado' };
+var num = v => { const s = String(v ?? '').trim(); if (s === '') return NaN; const n = Number(s.replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
 
 function adminView() {
   if (!state.authReady) return `<div class="wrap"><p class="muted" style="padding:64px 0;text-align:center">Cargando…</p></div>`;
@@ -1661,7 +1661,7 @@ async function doLogin(f) {
 }
 
 /* Stock automático: la Cloud Function lo descuenta; si no está activa, el panel lo aplica al abrirse. */
-let stockBusy = false;
+var stockBusy = false;
 async function applyPendingStock() {
   if (stockBusy || !DB || DB.mode !== 'firebase' || !state.user || !state.loaded.products) return;
   const pend = state.orders.filter(o => !o.stockApplied && o.status !== 'cancelado' && Date.now() - (o.createdAt || 0) > 90000);
@@ -1727,7 +1727,7 @@ function imageField(image, art, accent) {
     <div class="btns"><label class="btn btn-line btn-sm">Subir foto<input type="file" accept="image/*" class="sr" data-act="admImgFile"></label><button type="button" class="btn btn-line btn-sm" data-act="admImgClear">Quitar imagen</button></div>
     <small class="muted" id="imgNote">${isData ? 'Foto subida.' : (image ? '' : 'Sin imagen: se muestra la ilustración elegida abajo.')}</small></div></div>`;
 }
-const MAX_IMGS = 5;
+var MAX_IMGS = 5;
 function galleryField(images, art, accent) {
   const l = (images || []).filter(Boolean);
   return `<div class="field full gal-f"><label>Fotos del producto (hasta ${MAX_IMGS}; la primera es la principal)</label>
@@ -1797,14 +1797,14 @@ function openProductForm(id) {
 }
 
 /* ── Categorías ── */
-let catsBusy = false;
+var catsBusy = false;
 async function ensureCats() { // la primera vez, guarda las categorías iniciales para que sean editables
   if (catsBusy || !DB || !state.user || !state.loaded.cats || (state.catDocs || []).length) return;
   catsBusy = true;
   try { let i = 0; for (const c of DEFAULT_CATS) { const { id, ...d } = c; await DB.save('categories', id, { ...d, order: ++i }); } }
   catch (e) { console.warn('categorías', e); } finally { catsBusy = false; }
 }
-const slugify = t => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'cat';
+var slugify = t => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'cat';
 function mixWhite(hex, k) { const n = parseInt(hex.slice(1), 16); return '#' + [n >> 16, (n >> 8) & 255, n & 255].map(c => Math.round(c + (255 - c) * k).toString(16).padStart(2, '0')).join(''); }
 function categoriesTab() {
   const l = Object.entries(CATS);
