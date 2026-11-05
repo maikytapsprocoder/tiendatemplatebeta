@@ -1610,6 +1610,15 @@ function softRender() {
 }
 document.addEventListener('focusout', () => { if (pendingRender) setTimeout(() => { if (!document.activeElement?.closest?.('#adminBody input, #adminBody select')) { pendingRender = false; renderAdminBody(); } }, 50); });
 
+/* Si algo falla, que se vea (y se pueda copiar el detalle) en vez de quedar la página muerta */
+let lastErrAt = 0;
+function reportErr(msg) {
+  console.error('[tienda]', msg);
+  if (Date.now() - lastErrAt < 4000) return; lastErrAt = Date.now();
+  try { toast('Algo falló: ' + String(msg).slice(0, 140), { bad: true }); } catch { /* nada */ }
+}
+window.addEventListener('error', e => reportErr(e.message));
+window.addEventListener('unhandledrejection', e => reportErr(e.reason && e.reason.message || e.reason));
 (async function init() {
   state.route = parseHash();
   render();
@@ -1637,8 +1646,9 @@ function adminView() {
   if (!state.user) return loginView();
   const nuevos = state.orders.filter(o => o.status === 'nuevo').length;
   const tab = (id, label, badge) => `<button type="button" role="tab" data-act="admTab" data-tab="${id}" aria-selected="${state.admin.tab === id}">${label}${badge ? `<span class="badge">${badge}</span>` : ''}</button>`;
+  const rules = state.fsError ? '<div class="wrap"><p class="err" role="alert" style="margin:12px 0">No se pueden leer los productos de Firestore. Casi seguro faltan publicar las reglas (Firebase > Firestore > Reglas). Mientras tanto la tienda muestra productos de ejemplo.</p></div>' : '';
   return `<div id="adminShell"><div class="adm-bar"><div class="wrap"><span class="logo"><span class="logo-mark"></span>${esc(state.settings.storeName)} · Administración</span>
-    <nav><a class="btn" href="#/">Ver tienda</a><button type="button" class="btn" data-act="admLogout">Salir</button></nav></div></div>
+    <nav><a class="btn" href="#/">Ver tienda</a><button type="button" class="btn" data-act="admLogout">Salir</button></nav></div></div>${rules}
     <div class="wrap"><div class="tabs" role="tablist">${tab('products', 'Productos')}${tab('categories', 'Categorías')}${tab('banners', 'Ofertas y banners')}${tab('orders', 'Pedidos', nuevos || '')}${tab('settings', 'Ajustes')}</div>
     <div id="adminBody" role="tabpanel"></div></div></div>`;
 }
@@ -1929,7 +1939,7 @@ function settingsTab() {
 function formErr(form, msg) { const e = $('[data-err]', form); e.textContent = msg; e.hidden = false; e.scrollIntoView({ block: 'nearest' }); }
 async function guarded(fn, form) {
   const btn = form && $('button[type=submit]', form); if (btn) btn.disabled = true;
-  try { await fn(); }
+  try { await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('No se pudo guardar: sin respuesta del servidor. Revisá tu conexión y las reglas de Firestore.')), 15000))]); }
   catch (e) { console.error(e); const m = /permission|insufficient/i.test(e.message || e.code || '') ? 'Tu sesión no tiene permiso para guardar. Volvé a ingresar.' : (e.message || 'No se pudo guardar.'); form ? formErr(form, m) : toast(m, { bad: true }); }
   finally { if (btn) btn.disabled = false; }
 }
